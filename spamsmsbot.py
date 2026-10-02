@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import logging
+import concurrent.futures
 import requests
 from telegram import Update, BotCommand
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
@@ -150,15 +151,28 @@ async def otp_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def run_multi_spam(chat_id, phones, apis, task_name, rounds, update):
     try:
         total_sent = 0
-        for i in range(rounds):
-            await asyncio.sleep(0.1)
-            for phone in phones:
-                for api_config in apis:
-                    await asyncio.get_event_loop().run_in_executor(None, execute_api, api_config, phone)
-                    total_sent += 1
-                    await asyncio.sleep(0.1)
+        # Sử dụng ThreadPoolExecutor để chạy song song nhiều request cùng lúc, không bị nghẽn
+        with concurrent.futures.ThreadPoolExecutor(max_workers=30) as executor:
+            for i in range(rounds):
+                futures = []
+                for phone in phones:
+                    for api_config in apis:
+                        futures.append(
+                            asyncio.get_event_loop().run_in_executor(
+                                executor, execute_api, api_config, phone
+                            )
+                        )
+                # Chờ tất cả các request trong vòng lặp này hoàn tất
+                await asyncio.gather(*futures)
+                total_sent += len(futures)
+                await asyncio.sleep(0.2)
                 
-        await update.message.reply_text(f"✅ Tiến trình `{task_name}` đã hoàn thành! Đã gửi tổng cộng khoảng {total_sent} yêu cầu.", parse_mode="Markdown")
+        # Thông báo hoàn thành gửi ngay khi chạy xong toàn bộ vòng lặp
+        await update.message.reply_text(
+            f"✅ Tiến trình `{task_name}` đã hoàn thành!\n"
+            f"📊 Đã gửi tổng cộng: `{total_sent}` yêu cầu.", 
+            parse_mode="Markdown"
+        )
     except asyncio.CancelledError:
         await update.message.reply_text(f"⏹️ Tiến trình `{task_name}` đã bị dừng lại thành công.")
     except Exception as e:
@@ -187,7 +201,7 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"ℹ️ Không tìm thấy tiến trình nào đang chạy với tên `{task_name}`.")
 
 def main():
-    TOKEN = "YOUR_BOT_TOKEN"  # Thay token của bạn vào đây
+    TOKEN = "8889040109:AAE8DWQKZHvvGPOUH-vlD8ziYNVBKvV_iX0"  # Token của bạn
     
     app = ApplicationBuilder().token(TOKEN).build()
 
